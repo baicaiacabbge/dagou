@@ -1,0 +1,86 @@
+# 开发与音高验证工具
+
+此目录不参与网页运行，发布或打包时可以整体排除。
+
+`analyze_pitch.py` 会：
+
+1. 使用逐帧 YIN 检测大狗叫 `da / gou / jiao`、哈基米 `ha / ji / mi` 与叮咚鸡 `dingdongji_ding / dingdongji_dong / dingdongji_ji`；
+2. 从高能量、高置信度有声帧计算参考基频；
+3. 为每个按键生成固定的 A 小调五声音阶目标；
+4. 大狗叫/叮咚鸡第三档、哈基米第四档使用最接近对应原声的五声音阶音；
+5. 为钢琴模式生成从 C3、C4、C5、C6 起始的四组白键目标，共复测九段音频 × 四档 × 八键 = 288 个映射；
+6. 以 `da.wav` 的 20 ms 有声帧 RMS 为响度基准，计算九段音频的独立增益；
+7. 对普通模式与钢琴模式的所有档位实际重采样后重新检测音高与校准后响度；
+8. 将报告和可选试听 WAV 写入 `tools/tmp/`。
+
+运行：
+
+```powershell
+python tools/analyze_pitch.py --write-wavs
+python tools/find_piano_minimax.py
+node tools/build_audio_data.mjs
+node tools/verify_runtime_mapping.mjs
+node tools/verify_interaction_queue.mjs
+node tools/verify_toy_cloud_flow.mjs
+```
+
+第一条命令会直接分析网页实际使用的音频，其中哈基米运行时键 `ha / ji / mi`
+分别读取 `ha_new.wav / ji_new.wav / mi_new.wav`。读取器同时支持 16 位 PCM 和
+32 位浮点 WAV。除音高与响度外，报告还验证 `mi_new` 的长音区音高、响度和
+检测置信度是否足够稳定。
+
+`build_audio_data.mjs` 会从 `audio/` 重建网页实际使用的九段 base64 音频包。
+
+`verify_runtime_mapping.mjs` 会直接提取并执行 `main.js` 中的实际映射函数，对照分析报告检查
+三套音效的全部固定按键与独立响度增益，并确认各音色指定档位使用最接近原声
+的 A 小调五声音阶音、哈基米最低档已被新增高音替换；同时验证钢琴模式的横屏 `8 × 3`、竖屏 `3 × 8` 布局
+与 C3–C7 四档动态目标音、关闭八度切换时回退 C4–C5 的行为，以及运行时 `mi`
+长音参数与稳定区分析完全一致。分析器仍以 25 cents / 1 dB 为严格告警线；当前直接
+变调方案在最高档会明确报告 `mi/C6`、`dingdongji_ji/C6` 的 YIN 超限和
+`gou/C6/A6` 的 1.176 dB 响度超限，运行时验证只允许这些已记录且有上限的例外。
+
+`find_piano_minimax.py` 会对超限的“样本 + 起始八度”组合搜索单一 minimax 锚点。
+它不会生成逐键补偿，因此同一八度内仍严格保留十二平均律的白键间隔；搜索结果需同时
+写入 `analyze_pitch.py` 与 `main.js` 后重新运行完整分析。
+
+`verify_interaction_queue.mjs` 会验证快速横滑和竖滑能够补全所有跨过的分区、输入按连续八分音符
+排队，确认 `da / gou / jiao` 三个语义音节各自只保留最新的一个待调度项目，以及已进入
+长音的第三音节换调也进入该队列，只在当前纹理上切换播放速率而不重新播放
+开头；关闭节奏吸附后则验证每次输入都按实际按下时间立即发声且不去重。
+
+`verify_toy_cloud_flow.mjs` 会用模拟 Toy SDK 验证作者视频 BV 号到 aid 的转换、用户投币状态、
+启动与锁定项点击时的实时复查、投币解锁提示，以及视频跳转不会自行解锁或写入云端的行为。
+它也覆盖红点与 `NEW` 持久化、站外视频直接打开但不解锁，以及钢琴模式、八度切换、起始八度、
+节奏吸附和网格显示的默认值、云端恢复/写入，连续切档只保留最新写入，以及云存储
+不可用时以默认值启动、仍允许当前页面内切换的本地降级行为。
+
+线上投币检查错误 ID：`COIN-E01` 表示 Toy 环境或能力不可用；`COIN-A01`–`A04`
+表示作者视频请求、响应、目标条目或 aid 异常；`COIN-U01`–`U04` 表示用户互动请求、
+响应、目标条目或 `coinCount` 异常；`COIN-X01` 表示未分类异常。页面提示与控制台
+`[大狗Tap][错误ID]` 日志使用同一个编号。
+
+## 透明角色循环动画
+
+`build_character_animation.mjs` 会把东海帝皇的 1920 × 1080 透明 PNG 序列：
+
+1. 按全部帧的透明像素联合边界裁到 `672 × 960`（四周保留安全边距）；
+2. 从首帧到末帧均匀抽取 108 帧，每拍 12 帧，组成 `12 × 9` 的静态精灵图；
+3. 每帧以 Lanczos 缩放到 `360 × 514`，编码为带 Alpha 的无损 WebP；
+4. 同时生成 `128 × 128` 的帝皇按钮图标，不让设置按钮重复解码整段动画。
+
+运行：
+
+```powershell
+node tools\build_character_animation.mjs `
+  --source-directory 'M:\Videos\输出\donghaidihuang_透明背景'
+```
+
+默认输出到 `Image/donghaidihuang_atlas.webp`。页面只会在首次选择哈基米后
+后台请求该文件，不会增加首页的初始图片下载量。运行时不依赖图片自身计时，
+而是按 Web Audio 时钟计算当前帧：第 0 帧固定在重音点，108 帧刚好覆盖
+`9 × 12` 个节拍子帧。切换到帝皇时会等到最近的拍头从第 0 帧进入，
+此后每九拍严格回到开头且不会累积漂移。
+
+音频分析依赖 Python 3 与 NumPy，角色动画压缩依赖 Node.js 与 FFmpeg。
+所有报告、调试数据和临时音频必须放在
+`tools/tmp/`，不要让生产页面依赖这里的任何文件。
